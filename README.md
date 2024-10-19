@@ -8,3 +8,5 @@ To run:
 
 Hint:
 You can us Up/Down arrows to manipulate values
+
+<img width="505" alt="image" src="https://github.com/user-attachments/assets/9851e61a-5b2f-4693-be7a-b4b2f59289ce">
