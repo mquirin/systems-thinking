@@ -1,67 +1,99 @@
 import math
+from dataclasses import dataclass
+from typing import Callable
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 
-# stock: temperature in a room
-# flow in: heat from furnace
-#   regulated relative to diff(goal & current temp)
-#   only positive, limited by maximum heating capacity
-# flow out: heat to outside
-#   regulated by difference between inside and outside temperature
+
+@dataclass
+class Variable:
+    level: float
+
+    def value(self, t):
+        return self.level
 
 
+@dataclass
+class CosinePos:
+    min: float
+    max: float
+
+    # t = time between 0 (start) and 1 (end)
+    def value(self, t):
+        factor = 0.5 + 0.5 * math.cos(math.tau * t)
+        return self.min + (self.max - self.min) * factor
+
+
+@dataclass
+class Function:
+    f: Callable
+
+    def value(self, t):
+        return self.f(t)
+
+
+# Configuration
 temp_goal = 18
 temp_outisde_baseline = 10
-temp_outisde = temp_outisde_baseline
 
 temp_init = st.number_input("Initial temperature", value=10.0, step=0.5)
 max_heat = st.number_input("Max heating output", value=0.7, step=0.05)
 heat_per_diff = st.number_input("Heating per difference", value=0.25, step=0.05)
 leak_per_diff = st.number_input(
-    "Relative leakage to outside temp", value=0.05, step=0.01
+    "Relative leakage to outside temperature.level", value=0.05, step=0.01
 )
 
-periodic_outside_temp = st.toggle("Periodic outside temp")
+periodic_outside_temp = st.toggle("Periodic outside temperature.level")
 
 
-def sim():
-    temp = temp_init
-    data = []
-    temp_outisde = temp_outisde_baseline
+def simulation():
+    # stock: temperature
+    temperature = Variable(level=temp_init)
 
-    # period
-    for t in range(50):
-        if periodic_outside_temp:
-            factor = 0.5 + 0.5 * math.cos(2 * 3.14159 * t / 50)
-            temp_outisde = temp_outisde_baseline * factor
+    # input: outside temperature
+    if periodic_outside_temp:
+        temp_outisde = CosinePos(min=0, max=temp_outisde_baseline)
+    else:
+        temp_outisde = Variable(level=temp_outisde_baseline)
 
-        def flow_in():
-            diff = max(0, temp_goal - temp)
-            return min(max_heat, diff * heat_per_diff)
+    # flow: heat from furnace
+    # rate is relative to distance to goal temperature (e.g. bimetallic thermostat)
+    # only positive, has a max value
+    def flow_furnace(t):
+        rate = (temp_goal - temperature.level) * heat_per_diff
+        return np.clip(0, rate, max_heat)
 
-        def flow_out():
-            diff = temp_outisde - temp
-            return diff * leak_per_diff
+    # flow: thermal conduction
+    # higher if difference in temperature is higher
+    # has only a leakage / isolation factor
+    def flow_conduction(t):
+        diff_to_outside = temp_outisde.value(t) - temperature.level
+        return diff_to_outside * leak_per_diff
 
-        flow_in_ = flow_in()
-        flow_out_ = flow_out()
-        data.append(
+    log = []
+    steps = 50
+    for step in range(steps):
+        t = step / steps
+        flow_furnace_ = flow_furnace(t)
+        flow_conduction_ = flow_conduction(t)
+        log.append(
             {
-                "temp": temp,
-                "outside": temp_outisde,
+                "temperature.level": temperature.level,
+                "outside": temp_outisde.value(t),
                 "goal": temp_goal,
-                "flow_in": flow_in_,
-                "flow_out": flow_out_,
+                "flow_furnace": flow_furnace_,
+                "flow_conduction": flow_conduction_,
             }
         )
-        temp = temp + flow_in() + flow_out()
-    df = pd.DataFrame(data)
+        temperature.level = temperature.level + flow_furnace_ + flow_conduction_
+    df = pd.DataFrame(log)
     return df
 
 
-df = sim()
+df = simulation()
 
-st.line_chart(df[["temp", "outside", "goal"]])
-st.line_chart(df[["flow_in", "flow_out"]])
+st.line_chart(df[["temperature.level", "outside", "goal"]])
+st.line_chart(df[["flow_furnace", "flow_conduction"]])
 df
