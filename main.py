@@ -79,8 +79,7 @@ def simulation():
             }
         )
         temperature = temperature + flow_furnace_ + flow_conduction_
-    df = pd.DataFrame(log)
-    return df
+    return pd.DataFrame(log)
 
 
 df = simulation()
